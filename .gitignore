@@ -1,0 +1,12 @@
+ext/*.o
+ext/*.old
+ext/*.so
+ext/Makefile
+lib/sqlanywhere2/*.so
+lib/sqlanywhere2/*.bundle
+lib/sqlanywhere2/*.dll
+*.gem
+.DS_Store
+/tmp
+Gemfile.lock
+.byebug_history

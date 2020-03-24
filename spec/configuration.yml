@@ -1,0 +1,3 @@
+root:
+  conn_string: DatabaseName=test;UserID=dba;Password=sql;ConnectionName=test;Language=EN;
+  encoding: UTF-8

@@ -1,0 +1,30 @@
+AllCops:
+  TargetRubyVersion: 2.3
+  Exclude:
+    - ext/sqlanywhere2/extconf.rb
+    - 'tmp/**/*'
+
+Metrics/BlockLength:
+  Exclude:
+    - 'spec/**/*.rb'
+
+Metrics/AbcSize:
+  Max: 30
+
+Metrics/CyclomaticComplexity:
+  Max: 20
+
+Metrics/MethodLength:
+  Max: 30
+
+Metrics/PerceivedComplexity:
+  Max: 20
+
+Layout/LineLength:
+  Max: 120
+
+Style/Documentation:
+  Enabled: false
+
+Style/SafeNavigation:
+  Enabled: false
