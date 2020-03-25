@@ -48,13 +48,13 @@ RSpec.describe SQLAnywhere2::Connection do
 
         first_row = result.first
 
-        expect(first_row[2]).to eq('1.1')
         expect(first_row[3]).to eq('1.1')
-        expect(first_row[14]).to eq(1)
-        expect(first_row[15]).to eq('1999-01-02')
-        expect(first_row[16]).to eq('1999-01-02 21:20:53.000')
+        expect(first_row[4]).to eq('1.1')
+        expect(first_row[15]).to eq(1)
+        expect(first_row[16]).to eq('1999-01-02')
         expect(first_row[17]).to eq('1999-01-02 21:20:53.000')
         expect(first_row[18]).to eq('1999-01-02 21:20:53.000')
+        expect(first_row[19]).to eq('1999-01-02 21:20:53.000')
       end
     end
 

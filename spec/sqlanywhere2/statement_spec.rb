@@ -4,6 +4,23 @@ require './spec/spec_helper.rb'
 
 RSpec.describe SQLAnywhere2::Statement do
   let!(:connection) { new_connection }
+  let(:binary_test_val) { [0x78] }
+  let(:decimal_test_val) { 1.1 }
+  let(:string_test_val) { 'String Test' }
+  let(:bigint_test_val) { 9_223_372_036_854_775_807 }
+  let(:unsigned_bigint_test_val) { 18_446_744_073_709_551_615 }
+  let(:integer_test_val) { 2_147_483_647 }
+  let(:unsigned_integer_test_val) { 4_294_967_295 }
+  let(:smallint_test_val) { 32_767 }
+  let(:unsigned_smallint_test_val) { 65_535 }
+  let(:tinyint_test_val) { 255 }
+  let(:unsigned_tinyint_test_val) { 255 }
+  let(:bit_test_val) { true }
+  let(:date_test_val) { Date.new(1999, 1, 2) }
+  let(:datetime_test_val) { Time.new(1999, 1, 2, 21, 20, 53) }
+  let(:double_test_val) { 1.79769313486231e+308 }
+  let(:float_test_val) { 3.402823e+38 }
+  let(:real_test_val) { 3.402823e+38 }
 
   it 'should not allow initialization' do
     expect { SQLAnywhere2::Statement.new }.to raise_error(NoMethodError)
@@ -50,69 +67,190 @@ RSpec.describe SQLAnywhere2::Statement do
       result = statement.execute
       first_row = result.first
 
-      expect(first_row[0]).to eq(0)
-      expect(first_row[1].unpack('c*').first.to_i).to eq(0x78)
-      expect(first_row[2]).to eq(1.1)
-      expect(first_row[3]).to eq(1.1)
-      expect(first_row[4]).to eq('Bounded String Test')
-      expect(first_row[5]).to eq('Unbounded String Test')
-      expect(first_row[6]).to eq(9_223_372_036_854_775_807)
-      expect(first_row[7]).to eq(18_446_744_073_709_551_615)
-      expect(first_row[8]).to eq(2_147_483_647)
-      expect(first_row[9]).to eq(4_294_967_295)
-      expect(first_row[10]).to eq(32_767)
-      expect(first_row[11]).to eq(65_535)
-      expect(first_row[12]).to eq(255)
-      expect(first_row[13]).to eq(255)
-      expect(first_row[14]).to eq(true)
-      expect(first_row[15]).to eq(Date.new(1999, 1, 2))
-      expect(first_row[16]).to eq(Time.new(1999, 1, 2, 21, 20, 53))
-      expect(first_row[17]).to eq(Time.new(1999, 1, 2, 21, 20, 53))
-      expect(first_row[18]).to eq(Time.new(1999, 1, 2, 21, 20, 53))
-      expect(first_row[19]).to be_within(1e+308).of(1.79769313486231e+308)
-      expect(first_row[20]).to be_within(1e+38).of(3.402823e+38)
-      expect(first_row[21]).to be_within(1e+38).of(3.402823e+38)
+      expect(first_row[1].unpack('c*')).to eq(binary_test_val)
+      expect(first_row[2].unpack('c*')).to eq(binary_test_val)
+      expect(first_row[3]).to eq(decimal_test_val)
+      expect(first_row[4]).to eq(decimal_test_val)
+      expect(first_row[5]).to eq(string_test_val)
+      expect(first_row[6]).to eq(string_test_val)
+      expect(first_row[7]).to eq(bigint_test_val)
+      expect(first_row[8]).to eq(unsigned_bigint_test_val)
+      expect(first_row[9]).to eq(integer_test_val)
+      expect(first_row[10]).to eq(unsigned_integer_test_val)
+      expect(first_row[11]).to eq(smallint_test_val)
+      expect(first_row[12]).to eq(unsigned_smallint_test_val)
+      expect(first_row[13]).to eq(tinyint_test_val)
+      expect(first_row[14]).to eq(unsigned_tinyint_test_val)
+      expect(first_row[15]).to eq(bit_test_val)
+      expect(first_row[16]).to eq(date_test_val)
+      expect(first_row[17]).to eq(datetime_test_val)
+      expect(first_row[18]).to eq(datetime_test_val)
+      expect(first_row[19]).to eq(datetime_test_val)
+      expect(first_row[20]).to be_within(1e+308).of(double_test_val)
+      expect(first_row[21]).to be_within(1e+38).of(float_test_val)
+      expect(first_row[22]).to be_within(1e+38).of(real_test_val)
     end
 
     context 'bind types' do
       it 'should bind BINARY correctly' do
-        val = [1, 2]
         statement = connection.prepare('SELECT CAST(? AS BINARY)')
 
-        result = statement.execute(val.pack('c*'))
-        expect(result.first[0].unpack('c*')).to eq(val)
+        result = statement.execute(binary_test_val.pack('c*'))
+        expect(result.first[0].unpack('c*')).to eq(binary_test_val)
       end
 
-      it 'should bind STRING correctly' do
-        val = 'STR'
+      it 'should bind LONG BINARY correctly' do
+        statement = connection.prepare('SELECT CAST(? AS LONG BINARY)')
+
+        result = statement.execute(binary_test_val.pack('c*'))
+
+        expect(result.first[0].unpack('c*')).to eq(binary_test_val)
+      end
+
+      it 'should bind NUMERIC correctly' do
+        statement = connection.prepare('SELECT CAST(? AS NUMERIC(2,1))')
+
+        result = statement.execute(decimal_test_val)
+
+        expect(result.first[0]).to eq(decimal_test_val)
+      end
+
+      it 'should bind DECIMAL correctly' do
+        statement = connection.prepare('SELECT CAST(? AS DECIMAL(2,1))')
+
+        result = statement.execute(decimal_test_val)
+
+        expect(result.first[0]).to eq(decimal_test_val)
+      end
+
+      it 'should bind VARCHAR correctly' do
+        statement = connection.prepare('SELECT CAST(? AS VARCHAR(255)) S')
+
+        result = statement.execute(string_test_val)
+        expect(result.first[0]).to eq(string_test_val)
+      end
+
+      it 'should bind LONG VARCHAR correctly' do
         statement = connection.prepare('SELECT CAST(? AS LONG VARCHAR) S')
 
-        result = statement.execute(val)
-        expect(result.first[0]).to eq(val)
+        result = statement.execute(string_test_val)
+        expect(result.first[0]).to eq(string_test_val)
       end
 
-      it 'should bind FIXNUM correctly' do
-        val = 1
-        statement = connection.prepare('SELECT CAST(? AS INT) S')
-
-        result = statement.execute(val)
-        expect(result.first[0]).to eq(val)
-      end
-
-      it 'should bind BIGNUM correctly' do
-        val = 2**62
+      it 'should bind BIGINT correctly' do
         statement = connection.prepare('SELECT CAST(? AS BIGINT) S')
 
-        result = statement.execute(val)
-        expect(result.first[0]).to eq(val)
+        result = statement.execute(bigint_test_val)
+        expect(result.first[0]).to eq(bigint_test_val)
+      end
+
+      it 'should bind UNSIGNED BIGINT correctly' do
+        statement = connection.prepare('SELECT CAST(? AS UNSIGNED BIGINT) S')
+
+        result = statement.execute(unsigned_bigint_test_val)
+        expect(result.first[0]).to eq(unsigned_bigint_test_val)
+      end
+
+      it 'should bind INTEGER correctly' do
+        statement = connection.prepare('SELECT CAST(? AS INTEGER) S')
+
+        result = statement.execute(integer_test_val)
+        expect(result.first[0]).to eq(integer_test_val)
+      end
+
+      it 'should bind UNSIGNED INTEGER correctly' do
+        statement = connection.prepare('SELECT CAST(? AS UNSIGNED INTEGER) S')
+
+        result = statement.execute(unsigned_integer_test_val)
+        expect(result.first[0]).to eq(unsigned_integer_test_val)
+      end
+
+      it 'should bind SMALLINT correctly' do
+        statement = connection.prepare('SELECT CAST(? AS SMALLINT) S')
+
+        result = statement.execute(smallint_test_val)
+        expect(result.first[0]).to eq(smallint_test_val)
+      end
+
+      it 'should bind UNSIGNED SMALLINT correctly' do
+        statement = connection.prepare('SELECT CAST(? AS UNSIGNED SMALLINT) S')
+
+        result = statement.execute(unsigned_smallint_test_val)
+        expect(result.first[0]).to eq(unsigned_smallint_test_val)
+      end
+
+      it 'should bind TINYINT correctly' do
+        statement = connection.prepare('SELECT CAST(? AS TINYINT) S')
+
+        result = statement.execute(tinyint_test_val)
+        expect(result.first[0]).to eq(tinyint_test_val)
+      end
+
+      it 'should bind UNSIGNED TINYINT correctly' do
+        statement = connection.prepare('SELECT CAST(? AS UNSIGNED TINYINT) S')
+
+        result = statement.execute(unsigned_tinyint_test_val)
+        expect(result.first[0]).to eq(unsigned_tinyint_test_val)
+      end
+
+      it 'should bind BIT correctly' do
+        statement = connection.prepare('SELECT CAST(? AS BIT) S')
+
+        result = statement.execute(bit_test_val ? 1 : 0)
+        expect(result.first[0]).to eq(bit_test_val)
+      end
+
+      it 'should bind DATE correctly' do
+        statement = connection.prepare('SELECT CAST(? AS DATE)')
+
+        result = statement.execute(date_test_val.to_s)
+
+        expect(result.first[0]).to eq(date_test_val)
+      end
+
+      it 'should bind DATETIME correctly' do
+        statement = connection.prepare('SELECT CAST(? AS DATETIME)')
+
+        result = statement.execute(datetime_test_val.to_s)
+
+        expect(result.first[0]).to eq(datetime_test_val)
+      end
+
+      it 'should bind SMALLDATETIME correctly' do
+        statement = connection.prepare('SELECT CAST(? AS SMALLDATETIME)')
+
+        result = statement.execute(datetime_test_val.to_s)
+
+        expect(result.first[0]).to eq(datetime_test_val)
+      end
+
+      it 'should bind TIMESTAMP correctly' do
+        statement = connection.prepare('SELECT CAST(? AS TIMESTAMP)')
+
+        result = statement.execute(datetime_test_val.to_s)
+
+        expect(result.first[0]).to eq(datetime_test_val)
+      end
+
+      it 'should bind DOUBLE correctly' do
+        statement = connection.prepare('SELECT CAST(? AS DOUBLE) S')
+
+        result = statement.execute(double_test_val)
+        expect(result.first[0]).to be_within(1e+308).of(double_test_val)
       end
 
       it 'should bind FLOAT correctly' do
-        val = 2.01
         statement = connection.prepare('SELECT CAST(? AS FLOAT) S')
 
-        result = statement.execute(val)
-        expect(result.first[0]).to be_within(1e-5).of(val)
+        result = statement.execute(float_test_val)
+        expect(result.first[0]).to be_within(1e+38).of(float_test_val)
+      end
+
+      it 'should bind REAL correctly' do
+        statement = connection.prepare('SELECT CAST(? AS REAL) S')
+
+        result = statement.execute(real_test_val)
+        expect(result.first[0]).to be_within(1e+38).of(real_test_val)
       end
 
       it 'should bind NIL correctly' do

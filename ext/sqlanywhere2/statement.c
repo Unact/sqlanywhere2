@@ -47,6 +47,7 @@ static void rb_data_to_sqlanywhere_data(struct rb_data_to_sqlanywhere_data_args 
   a_sqlany_data_value *value = data.value;
   VALUE arg = data.arg;
   size_t length;
+  rb_encoding *arg_encoding;
 
   value->is_null = xmalloc(sizeof(int));
   value->length = xmalloc(sizeof(size_t));
@@ -55,16 +56,18 @@ static void rb_data_to_sqlanywhere_data(struct rb_data_to_sqlanywhere_data_args 
 
   switch(TYPE(arg)) {
     case T_STRING:
-      // If awaited sqlanywhere type is not binary change it to string
-      if (value->type != A_BINARY) {
-        value->type = A_STRING;
-      }
+      arg_encoding = rb_enc_get(arg);
       length = RSTRING_LEN(arg);
 
       value->buffer = xmalloc(length);
       memcpy(value->buffer, RSTRING_PTR(arg), length);
-
       *value->length = length;
+
+      value->type = A_STRING;
+      // If encoding is ASCII_8BIT then this is a binary string
+      if (arg_encoding == rb_ascii8bit_encoding()) {
+        value->type = A_BINARY;
+      }
 
       break;
   case T_FIXNUM:
@@ -79,10 +82,16 @@ static void rb_data_to_sqlanywhere_data(struct rb_data_to_sqlanywhere_data_args 
     }
 
     break;
+  // Since some BIGNUMs don't fit into LONG_LONG always send as STRING type
   case T_BIGNUM:
-    value->buffer = xmalloc(sizeof(LONG_LONG));
-    *((LONG_LONG*)value->buffer) = (LONG_LONG) rb_num2ll(arg);
-    value->type = A_VAL64;
+    arg = rb_big2str(arg, 10);
+    length = RSTRING_LEN(arg);
+
+    value->buffer = xmalloc(length);
+    memcpy(value->buffer, RSTRING_PTR(arg), length);
+    value->type = A_STRING;
+    *value->length = length;
+
     break;
   case T_FLOAT:
     value->buffer = xmalloc(sizeof(double));
@@ -135,11 +144,9 @@ static VALUE sqlanywhere_data_to_rb_data(struct sqlanywhere_data_to_rb_data_args
       ret_data = INT2NUM(*(short *)value->buffer);
       break;
     case A_UVAL16:
-      ret_data = UINT2NUM(*( unsigned short *)value->buffer);
+      ret_data = UINT2NUM(*(unsigned short *)value->buffer);
       break;
     case A_VAL8:
-      ret_data = CHR2FIX(*(unsigned char *)value->buffer);
-      break;
     case A_UVAL8:
       ret_data = CHR2FIX(*(unsigned char *)value->buffer);
       break;
