@@ -127,4 +127,96 @@ RSpec.describe SQLAnywhere2::Connection do
       expect { connection.prepare(nil) }.to raise_error(SQLAnywhere2::Error)
     end
   end
+
+  context '#commit' do
+    let(:connection) { new_connection }
+
+    it 'should commit result if successful' do
+      connection.execute_direct('INSERT INTO sqlanywhere2_test(id) VALUES(2)')
+      commit_result = connection.commit
+
+      _, result = new_connection.execute_direct('SELECT * FROM sqlanywhere2_test WHERE id = 2')
+      expect(commit_result).to eq(true)
+      expect(result.first).not_to be_nil
+    end
+
+    it 'should not commit result if not successful' do
+      connection.execute_direct('INSERT INTO sqlanywhere2_test(id) VALUES(2)')
+      connection.close
+      commit_result = connection.commit
+
+      _, result = new_connection.execute_direct('SELECT * FROM sqlanywhere2_test WHERE id = 2')
+      expect(commit_result).to eq(false)
+      expect(result.first).to be_nil
+    end
+  end
+
+  context '#commit!' do
+    let(:connection) { new_connection }
+
+    it 'should commit result if successful' do
+      connection.execute_direct('INSERT INTO sqlanywhere2_test(id) VALUES(2)')
+      commit_result = connection.commit!
+
+      _, result = new_connection.execute_direct('SELECT * FROM sqlanywhere2_test WHERE id = 2')
+      expect(commit_result).to eq(true)
+      expect(result.first).not_to be_nil
+    end
+
+    it 'should not commit result and raise an error if not successful' do
+      connection.execute_direct('INSERT INTO sqlanywhere2_test(id) VALUES(2)')
+      connection.close
+
+      expect { connection.commit! }.to raise_error(SQLAnywhere2::Error)
+
+      _, result = new_connection.execute_direct('SELECT * FROM sqlanywhere2_test WHERE id = 2')
+      expect(result.first).to be_nil
+    end
+  end
+
+  context '#rollback' do
+    let(:connection) { new_connection }
+
+    it 'should rollback result if successful' do
+      connection.execute_direct('INSERT INTO sqlanywhere2_test(id) VALUES(2)')
+      rollback_result = connection.rollback
+
+      _, result = new_connection.execute_direct('SELECT * FROM sqlanywhere2_test WHERE id = 2')
+      expect(rollback_result).to eq(true)
+      expect(result.first).to be_nil
+    end
+
+    it 'should return false if failed' do
+      connection.execute_direct('INSERT INTO sqlanywhere2_test(id) VALUES(2)')
+      connection.close
+      rollback_result = connection.rollback
+
+      _, result = new_connection.execute_direct('SELECT * FROM sqlanywhere2_test WHERE id = 2')
+      expect(rollback_result).to eq(false)
+      expect(result.first).to be_nil
+    end
+  end
+
+  context '#rollback!' do
+    let(:connection) { new_connection }
+
+    it 'should rollback result if successful' do
+      connection.execute_direct('INSERT INTO sqlanywhere2_test(id) VALUES(2)')
+      rollback_result = connection.rollback!
+
+      _, result = new_connection.execute_direct('SELECT * FROM sqlanywhere2_test WHERE id = 2')
+      expect(rollback_result).to eq(true)
+      expect(result.first).to be_nil
+    end
+
+    it 'should raise an error if not successful' do
+      connection.execute_direct('INSERT INTO sqlanywhere2_test(id) VALUES(2)')
+      connection.close
+
+      expect { connection.rollback! }.to raise_error(SQLAnywhere2::Error)
+
+      _, result = new_connection.execute_direct('SELECT * FROM sqlanywhere2_test WHERE id = 2')
+      expect(result.first).to be_nil
+    end
+  end
 end

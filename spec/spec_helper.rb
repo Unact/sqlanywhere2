@@ -18,7 +18,36 @@ RSpec.configure do |config|
   end
 
   config.before :each do
-    @connection = new_connection
+    connection = new_connection
+    connection.execute_immediate 'DELETE FROM sqlanywhere2_test'
+    connection.execute_immediate <<-SQL
+      INSERT INTO sqlanywhere2_test VALUES(
+        0,
+        CAST(0x78 AS BINARY),
+        CAST(0x78 AS BINARY),
+        1.1,
+        1.1,
+        'String Test',
+        'String Test',
+        9223372036854775807,
+        18446744073709551615,
+        2147483647,
+        4294967295,
+        32767,
+        65535,
+        255,
+        255,
+        1,
+        DATE('1999-01-02 21:20:53'),
+        DATETIME('1999-01-02 21:20:53'),
+        DATETIME('1999-01-02 21:20:53'),
+        DATETIME('1999-01-02 21:20:53'),
+        1.79769313486231e+308,
+        3.402823e+38,
+        3.402823e+38
+      );
+    SQL
+    connection.execute_immediate 'COMMIT'
   end
 
   config.after :each do
@@ -55,35 +84,6 @@ RSpec.configure do |config|
         "_real_" REAL DEFAULT NULL
       )
     SQL
-    connection.execute_immediate 'DELETE FROM sqlanywhere2_test'
-    connection.execute_immediate <<-SQL
-      INSERT INTO sqlanywhere2_test VALUES(
-        0,
-        CAST(0x78 AS BINARY),
-        CAST(0x78 AS BINARY),
-        1.1,
-        1.1,
-        'String Test',
-        'String Test',
-        9223372036854775807,
-        18446744073709551615,
-        2147483647,
-        4294967295,
-        32767,
-        65535,
-        255,
-        255,
-        1,
-        DATE('1999-01-02 21:20:53'),
-        DATETIME('1999-01-02 21:20:53'),
-        DATETIME('1999-01-02 21:20:53'),
-        DATETIME('1999-01-02 21:20:53'),
-        1.79769313486231e+308,
-        3.402823e+38,
-        3.402823e+38
-      );
-    SQL
-    connection.execute_immediate 'COMMIT'
     connection.execute_immediate <<-SQL
       CREATE OR REPLACE PROCEDURE TEST(@PARAM INT)
       BEGIN

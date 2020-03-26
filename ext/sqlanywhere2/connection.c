@@ -32,6 +32,22 @@ struct nogvl_execute_direct_args {
   const char *sql;
 };
 
+static void *nogvl_commit(void *connection) {
+  sacapi_bool result;
+
+  result = sqlany_commit(connection);
+
+  return (void *)(result != 0 ? Qtrue : Qfalse);
+}
+
+static void *nogvl_rollback(void *connection) {
+  sacapi_bool result;
+
+  result = sqlany_rollback(connection);
+
+  return (void *)(result != 0 ? Qtrue : Qfalse);
+}
+
 static void *nogvl_connect(void *ptr) {
   struct nogvl_connect_args *args = ptr;
   sacapi_bool result;
@@ -238,12 +254,67 @@ static VALUE rb_sqlanywhere_connection_execute_direct(VALUE self, VALUE sql) {
   return result;
 }
 
+/* call-seq:
+ *    connection.commit
+ *
+ * Returns true if succeeded, false if not
+ */
+static VALUE rb_sqlanywhere_commit(VALUE self) {
+  GET_CONNECTION(self);
+
+  return (VALUE) rb_thread_call_without_gvl(nogvl_commit, wrapper->connection, RUBY_UBF_IO, 0);
+}
+
+/* call-seq:
+ *    connection.commit!
+ *
+ * Returns true if succeeded, raises an error if not
+ */
+static VALUE rb_sqlanywhere_commit_bang(VALUE self) {
+  GET_CONNECTION(self);
+
+  if ((VALUE) rb_thread_call_without_gvl(nogvl_commit, wrapper->connection, RUBY_UBF_IO, 0) == Qfalse) {
+    rb_raise_sqlanywhere_error(self);
+  }
+
+  return Qtrue;
+}
+
+/* call-seq:
+ *    connection.rollback
+ *
+ * Returns true if succeeded, false if not
+ */
+static VALUE rb_sqlanywhere_rollback(VALUE self) {
+  GET_CONNECTION(self);
+
+  return (VALUE) rb_thread_call_without_gvl(nogvl_rollback, wrapper->connection, RUBY_UBF_IO, 0);
+}
+
+/* call-seq:
+ *    connection.rollback!
+ *
+ * Returns true if succeeded, raises an error if not
+ */
+static VALUE rb_sqlanywhere_rollback_bang(VALUE self) {
+  GET_CONNECTION(self);
+
+  if ((VALUE) rb_thread_call_without_gvl(nogvl_rollback, wrapper->connection, RUBY_UBF_IO, 0) == Qfalse) {
+    rb_raise_sqlanywhere_error(self);
+  }
+
+  return Qtrue;
+}
+
 void init_sqlanywhere2_connection() {
   cSQLAnywhere2Connection = rb_define_class_under(mSQLAnywhere2, "Connection", rb_cObject);
 
   rb_define_alloc_func(cSQLAnywhere2Connection, allocate);
   rb_define_method(cSQLAnywhere2Connection, "close", rb_sqlanywhere_connection_close, 0);
-
+  rb_define_method(cSQLAnywhere2Connection, "commit", rb_sqlanywhere_commit, 0);
+  rb_define_method(cSQLAnywhere2Connection, "commit!", rb_sqlanywhere_commit_bang, 0);
+  rb_define_method(cSQLAnywhere2Connection, "rollback", rb_sqlanywhere_rollback, 0);
+  rb_define_method(cSQLAnywhere2Connection, "rollback!", rb_sqlanywhere_rollback_bang, 0);
   rb_define_private_method(cSQLAnywhere2Connection, "_prepare", rb_sqlanywhere_connection_prepare_statement, 1);
   rb_define_private_method(cSQLAnywhere2Connection, "_execute_immediate", rb_sqlanywhere_connection_execute_immediate, 1);
   rb_define_private_method(cSQLAnywhere2Connection, "_execute_direct", rb_sqlanywhere_connection_execute_direct, 1);
