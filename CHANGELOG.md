@@ -1,3 +1,7 @@
+## 0.0.4
+
+* Add query cancelation ubf on ruby interrupts
+
 ## 0.0.3
 
 * Add commit, commit!, rollback, rollback! methods
