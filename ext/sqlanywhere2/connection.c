@@ -66,12 +66,24 @@ static void *nogvl_execute_immediate(void *ptr) {
   return (void*)(result != 0 ? Qtrue : Qfalse);
 }
 
+static void nogvl_execute_immediate_ubf(void *ptr) {
+  struct nogvl_execute_immediate_args *args = ptr;
+
+  sqlany_cancel(args->connection);
+}
+
 static void *nogvl_execute_direct(void *ptr) {
   struct nogvl_execute_direct_args *args = ptr;
 
   args->stmt = sqlany_execute_direct(args->connection, args->sql);
 
   return (void*)(args->stmt != NULL ? Qtrue : Qfalse);
+}
+
+static void nogvl_execute_direct_ubf(void *ptr) {
+  struct nogvl_execute_direct_args *args = ptr;
+
+  sqlany_cancel(args->connection);
 }
 
 static void *nogvl_close(void *ptr) {
@@ -173,7 +185,7 @@ static VALUE rb_sqlanywhere_connection_execute_immediate(VALUE self, VALUE sql) 
   args.connection = wrapper->connection;
   args.sql = StringValueCStr(sql);
 
-  if ((VALUE) rb_thread_call_without_gvl(nogvl_execute_immediate, &args, RUBY_UBF_IO, 0) == Qfalse) {
+  if ((VALUE) rb_thread_call_without_gvl(nogvl_execute_immediate, &args, nogvl_execute_immediate_ubf, &args) == Qfalse) {
     rb_raise_sqlanywhere_error(self);
   }
 
@@ -241,7 +253,7 @@ static VALUE rb_sqlanywhere_connection_execute_direct(VALUE self, VALUE sql) {
   args.connection = wrapper->connection;
   args.sql = StringValueCStr(sql);
 
-  if ((VALUE) rb_thread_call_without_gvl(nogvl_execute_direct, &args, RUBY_UBF_IO, 0) == Qfalse) {
+  if ((VALUE) rb_thread_call_without_gvl(nogvl_execute_direct, &args, nogvl_execute_direct_ubf, &args) == Qfalse) {
     rb_raise_sqlanywhere_error(self);
   }
 

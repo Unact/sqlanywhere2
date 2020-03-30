@@ -12,6 +12,16 @@ static VALUE intern_parse, intern_new, intern_BigDecimal, intern_localtime, inte
   if (!stmt_wrapper->stmt) { rb_raise(cSQLAnywhere2Error, "Invalid statement handle"); } \
   if (stmt_wrapper->closed) { rb_raise(cSQLAnywhere2Error, "Statement handle already closed"); }
 
+
+/*
+ * used to pass all arguments to sqlany_execute_direct while inside
+ * rb_thread_call_without_gvl
+ */
+struct nogvl_stmt_execute_args {
+  a_sqlany_connection *connection;
+  a_sqlany_stmt *stmt;
+};
+
 /*
  * used to pass all arguments to sqlanywhere_data_to_rb_data
  */
@@ -198,12 +208,18 @@ static VALUE sqlanywhere_data_to_rb_data(struct sqlanywhere_data_to_rb_data_args
 }
 
 static void *nogvl_stmt_execute(void *ptr) {
-  a_sqlany_stmt *stmt = ptr;
+  struct nogvl_stmt_execute_args *args = ptr;
   sacapi_bool result;
 
-  result = sqlany_execute(stmt);
+  result = sqlany_execute(args->stmt);
 
   return (void*)(result != 0 ? Qtrue : Qfalse);
+}
+
+static void nogvl_stmt_execute_ubf(void *ptr) {
+  struct nogvl_stmt_execute_args *args = ptr;
+
+  sqlany_cancel(args->connection);
 }
 
 static void *nogvl_stmt_close(void *ptr) {
@@ -491,6 +507,7 @@ static VALUE rb_sqlanywhere_stmt_execute(int argc, VALUE *argv, VALUE self) {
   a_sqlany_stmt *stmt;
   VALUE result;
   rb_encoding *encoding;
+  struct nogvl_stmt_execute_args args;
   struct rb_data_to_sqlanywhere_data_args rb_data;
   int args_count = rb_scan_args(argc, argv, "*", NULL);
   sacapi_i32 alloc_count = 0;
@@ -532,7 +549,10 @@ static VALUE rb_sqlanywhere_stmt_execute(int argc, VALUE *argv, VALUE self) {
     }
   }
 
-  if ((VALUE)rb_thread_call_without_gvl(nogvl_stmt_execute, stmt_wrapper->stmt, RUBY_UBF_IO, 0) == Qfalse) {
+  args.stmt = stmt;
+  args.connection = wrapper->connection;
+
+  if ((VALUE)rb_thread_call_without_gvl(nogvl_stmt_execute, &args, nogvl_stmt_execute_ubf, &args) == Qfalse) {
     FREE_BINDS;
     rb_raise_sqlanywhere_stmt_error(stmt_wrapper);
   }
