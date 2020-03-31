@@ -70,6 +70,16 @@ RSpec.describe SQLAnywhere2::Connection do
         expect(statement.execute).not_to be_nil
       end
     end
+
+    context ':conn_string' do
+      it 'should check that it is a String' do
+        expect { SQLAnywhere2::Connection.new(conn_string: {}) }.to raise_error(SQLAnywhere2::Error)
+      end
+    end
+
+    it 'should check that opts is a Hash' do
+      expect { SQLAnywhere2::Connection.new('') }.to raise_error(SQLAnywhere2::Error)
+    end
   end
 
   context '#execute_immediate' do

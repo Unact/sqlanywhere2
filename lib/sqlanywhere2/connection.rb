@@ -9,10 +9,11 @@ module SQLAnywhere2
     attr_reader :conn_string, :cast, :database_timezone, :encoding, :enable_crash_fix
 
     def initialize(opts = {})
+      raise SQLAnywhere2::Error, 'Options parameter must be a Hash' unless opts.is_a?(Hash)
+
       opts = symbolize_opts_keys(opts)
       raise SQLAnywhere2::Error, 'Connection string parameter must be a String' unless opts[:conn_string].is_a?(String)
 
-      process_pid = Process.pid
       conn_opts = parse_conn_string(opts[:conn_string])
 
       @enable_crash_fix = opts[:enable_crash_fix] || false
@@ -30,11 +31,7 @@ module SQLAnywhere2
 
       @conn_string = build_conn_string(conn_opts)
 
-      unless @@initialized_pids.include?(process_pid)
-        initialize_lib
-        @@initialized_pids.push(process_pid)
-      end
-
+      initialize_process
       initialize_connection
       connect(@conn_string)
       execute_immediate('CREATE VARIABLE @@sqlawnywhere2_fix char(1)') if @enable_crash_fix
@@ -56,6 +53,15 @@ module SQLAnywhere2
     end
 
     private
+
+    def initialize_process
+      process_pid = Process.pid
+
+      return if @@initialized_pids.include?(process_pid)
+
+      initialize_lib
+      @@initialized_pids.push(process_pid)
+    end
 
     def check_sql!(sql)
       raise SQLAnywhere2::Error, 'SQL must be a String' unless sql.is_a?(String)
