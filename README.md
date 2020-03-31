@@ -120,10 +120,6 @@ Use 'bundle install' to install the necessary development and testing gems:
 
 ```bash
 bundle install
-rake compile
 ```
 
-Tests require a test database to be running. Basic setup is as follows:
-
-- Create a test database `dbinit tmp/test`
-- Start it `dbeng tmp/test`
+After which you can use `rake` command to run rspec tests and rubocop linting

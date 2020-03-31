@@ -6,7 +6,7 @@ module SQLAnywhere2
       undef: :replace,
       invalid: :replace,
       replace: '?'
-    }
+    }.freeze
 
     attr_reader :error_number, :sql_state
 

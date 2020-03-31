@@ -1,22 +1,17 @@
 # frozen_string_literal: true
 
-require 'rake/extensiontask'
-require 'rspec/core/rake_task'
+require 'rake'
 
-Rake::ExtensionTask.new do |ext|
-  ext.name = 'sqlanywhere2'
-  ext.lib_dir = 'lib/sqlanywhere2'
-  ext.ext_dir = 'ext/sqlanywhere2'
-  ext.tmp_dir = 'tmp'
-  ext.source_pattern = '*.c'
-  ext.gem_spec = Gem::Specification.load('sqlanywhere2.gemspec')
-end
+load 'tasks/sqlanywhere.rake'
+load 'tasks/compile.rake'
+load 'tasks/rspec.rake'
 
 begin
-  RSpec::Core::RakeTask.new('spec') do |t|
-    t.verbose = true
-    t.prerequisites = [:compile]
-  end
+  require 'rubocop/rake_task'
+
+  RuboCop::RakeTask.new
+  task default: %i[spec rubocop]
 rescue LoadError
-  puts 'You must `gem install rspec` and `bundle install` to run rake tasks'
+  warn 'RuboCop is not available'
+  task default: :spec
 end
