@@ -1,3 +1,8 @@
+## 0.0.5
+
+* Add additional check for `SQLAnywhere2::Connection` initialization
+* Refactor testing setup
+
 ## 0.0.4
 
 * Add query cancelation ubf on ruby interrupts
