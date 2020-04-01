@@ -307,7 +307,7 @@ static VALUE rb_sqlanywhere_stmt_rows(VALUE self) {
   }
 
   if (num_cols == 0) {
-    return Qnil;
+    return rows;
   }
 
   a_sqlany_column_info column_info[num_cols];

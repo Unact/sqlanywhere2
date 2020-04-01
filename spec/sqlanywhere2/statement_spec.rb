@@ -283,6 +283,13 @@ RSpec.describe SQLAnywhere2::Statement do
 
       expect(result).to eq(statement.last_result)
     end
+
+    it 'rows should return array even if no rows are returned' do
+      statement = connection.prepare('DECLARE @TEST INT')
+      result = statement.execute
+
+      expect(result.count).to eq(0)
+    end
   end
 
   context '#close' do
