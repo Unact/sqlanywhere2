@@ -1,3 +1,7 @@
+## 0.0.6
+
+* Change to always return an array of rows for any `SQLAnywhere2::Statement` query
+
 ## 0.0.5
 
 * Add additional check for `SQLAnywhere2::Connection` initialization
