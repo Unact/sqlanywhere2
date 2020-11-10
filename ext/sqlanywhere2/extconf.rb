@@ -30,6 +30,10 @@ else
   $LOCAL_LIBS << '-ldbcapi_r'
 end
 
+if RUBY_PLATFORM =~ /darwin/
+  $LDFLAGS += " -Wl,-rpath,#{lib_path}"
+end
+
 dir_config(extension_name, sdk_path, lib_path)
 
 create_makefile("#{extension_name}/#{extension_name}")

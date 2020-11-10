@@ -571,7 +571,7 @@ static VALUE rb_sqlanywhere_stmt_execute(int argc, VALUE *argv, VALUE self) {
   return result;
 }
 
-void init_sqlanywhere2_statement() {
+void init_sqlanywhere_statement() {
   cDate = rb_const_get(rb_cObject, rb_intern("Date"));
   cTime = rb_const_get(rb_cObject, rb_intern("Time"));
   cBigDecimal = rb_const_get(rb_cObject, rb_intern("BigDecimal"));

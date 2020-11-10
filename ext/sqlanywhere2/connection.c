@@ -318,7 +318,7 @@ static VALUE rb_sqlanywhere_rollback_bang(VALUE self) {
   return Qtrue;
 }
 
-void init_sqlanywhere2_connection() {
+void init_sqlanywhere_connection() {
   cSQLAnywhere2Connection = rb_define_class_under(mSQLAnywhere2, "Connection", rb_cObject);
 
   rb_define_alloc_func(cSQLAnywhere2Connection, allocate);
