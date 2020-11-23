@@ -9,6 +9,9 @@ It also does not support multirow fetching since libdbcapi multi fetching is bug
 __Warning__ libdbcapi does not support execution of queries with procedures which contain INOUT parameters.
 If such procedure is used it seldom leads to a ruby VM crash. More info on this below.
 
+__Warning__ libdbcapi does not support preparing statements with more than 32767 params(16-bit integer limit).
+If an SQL with this many parameters is prepared, it will lead to a ruby VM crash.
+
 It requires specifing connection encoding for correct translation from returned sql data to ruby.
 
 The API consists of three classes:
