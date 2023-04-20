@@ -12,7 +12,7 @@ Gem::Specification.new do |gem|
   gem.extensions = ['ext/sqlanywhere2/extconf.rb']
   gem.homepage = 'https://github.com/Unact/sqlanywhere2'
   gem.files = `git ls-files README.md CHANGELOG.md LICENSE ext lib`.split
-  gem.test_files = `git ls-files spec`.split
 
-  gem.required_ruby_version = '>= 2.3.0'
+  gem.required_ruby_version = '>= 2.7.0'
+  gem.metadata['rubygems_mfa_required'] = 'true'
 end

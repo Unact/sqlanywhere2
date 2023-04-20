@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require './spec/spec_helper.rb'
+require './spec/spec_helper'
 
 RSpec.describe SQLAnywhere2::Result do
   let!(:connection) { new_connection }

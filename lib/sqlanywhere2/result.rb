@@ -5,6 +5,7 @@ module SQLAnywhere2
     include Enumerable
 
     attr_reader :columns, :rows
+
     private_class_method :new # This is can only be called natively in C land
 
     def initialize(columns, rows)

@@ -73,7 +73,7 @@ module SQLAnywhere2
     end
 
     def symbolize_opts_keys(opts)
-      opts.each_with_object({}) { |(key, val), obj| obj[key.to_sym] = val }
+      opts.transform_keys(&:to_sym)
     end
 
     def parse_conn_string(conn_string)
