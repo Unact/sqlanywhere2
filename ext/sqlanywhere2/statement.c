@@ -434,7 +434,7 @@ static VALUE rb_sqlanywhere_stmt_columns(VALUE self) {
       INT2NUM(column_info.native_type),
       INT2NUM(column_info.precision),
       INT2NUM(column_info.scale),
-      INT2NUM(column_info.max_size),
+      LONG2NUM(column_info.max_size),
       column_info.nullable == 1 ? Qtrue : Qfalse
     );
 
@@ -579,6 +579,7 @@ void init_sqlanywhere_statement() {
   cSQLAnywhere2Column = rb_const_get(mSQLAnywhere2, rb_intern("Column"));
 
   cSQLAnywhere2Statement = rb_define_class_under(mSQLAnywhere2, "Statement", rb_cObject);
+  rb_undef_alloc_func(cSQLAnywhere2Statement);
   rb_define_method(cSQLAnywhere2Statement, "execute", rb_sqlanywhere_stmt_execute, -1);
   rb_define_method(cSQLAnywhere2Statement, "close", rb_sqlanywhere_stmt_close, 0);
   rb_define_method(cSQLAnywhere2Statement, "num_columns", rb_sqlanywhere_stmt_num_columns, 0);
