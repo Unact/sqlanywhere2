@@ -1,3 +1,8 @@
+## 0.0.8
+
+* Fix rubocop warnings
+* Fix ruby warnings
+
 ## 0.0.7
 
 * Fix compile errors
