@@ -1,3 +1,7 @@
+## 0.0.9
+
+* Fix error in multithread execution returning incorrect error text
+
 ## 0.0.8
 
 * Fix rubocop warnings
