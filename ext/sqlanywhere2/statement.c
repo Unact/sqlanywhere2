@@ -12,14 +12,26 @@ static VALUE intern_parse, intern_new, intern_BigDecimal, intern_localtime, inte
   if (!stmt_wrapper->stmt) { rb_raise(cSQLAnywhere2Error, "Invalid statement handle"); } \
   if (stmt_wrapper->closed) { rb_raise(cSQLAnywhere2Error, "Statement handle already closed"); }
 
+#define GET_AND_RAISE_SQLANYWHERE_ERROR(stmt_wrapper, error) \
+  get_sqlanywhere_error(stmt_wrapper->connection_wrapper->connection, &error); \
+  rb_raise_sqlanywhere_error(stmt_wrapper->connection, &error);
 
 /*
  * used to pass all arguments to sqlany_execute_direct while inside
  * rb_thread_call_without_gvl
  */
 struct nogvl_stmt_execute_args {
-  a_sqlany_connection *connection;
-  a_sqlany_stmt *stmt;
+  sqlanywhere_stmt_wrapper *stmt_wrapper;
+  struct sqlanywhere_error *error;
+};
+
+/*
+ * used to pass all arguments to sqlany_fetch_next while inside
+ * rb_thread_call_without_gvl
+ */
+struct nogvl_stmt_fetch_next_args {
+  sqlanywhere_stmt_wrapper *stmt_wrapper;
+  struct sqlanywhere_error *error;
 };
 
 /*
@@ -211,15 +223,11 @@ static void *nogvl_stmt_execute(void *ptr) {
   struct nogvl_stmt_execute_args *args = ptr;
   sacapi_bool result;
 
-  result = sqlany_execute(args->stmt);
+  result = sqlany_execute(args->stmt_wrapper->stmt);
+
+  if (result == 0) get_sqlanywhere_error(args->stmt_wrapper->connection_wrapper->connection, args->error);
 
   return (void*)(result != 0 ? Qtrue : Qfalse);
-}
-
-static void nogvl_stmt_execute_ubf(void *ptr) {
-  struct nogvl_stmt_execute_args *args = ptr;
-
-  sqlany_cancel(args->connection);
 }
 
 static void *nogvl_stmt_close(void *ptr) {
@@ -234,12 +242,14 @@ static void *nogvl_stmt_close(void *ptr) {
 }
 
 static void *nogvl_stmt_fetch_next(void *ptr) {
-  sqlanywhere_stmt_wrapper *stmt_wrapper = ptr;
+  struct nogvl_stmt_fetch_next_args *args = ptr;
   sacapi_bool result = 0;
 
-  if (!stmt_wrapper->closed) {
-    result = sqlany_fetch_next(stmt_wrapper->stmt);
+  if (!args->stmt_wrapper->closed) {
+    result = sqlany_fetch_next(args->stmt_wrapper->stmt);
   }
+
+  if (result == 0) get_sqlanywhere_error(args->stmt_wrapper->connection_wrapper->connection, args->error);
 
   return (void*)(result != 0 ? Qtrue : Qfalse);
 }
@@ -257,10 +267,6 @@ static void rb_sqlanywhere_stmt_free(void *ptr) {
   nogvl_stmt_close(stmt_wrapper);
   decr_sqlanywhere_connection(stmt_wrapper->connection_wrapper);
   xfree(stmt_wrapper);
-}
-
-static void rb_raise_sqlanywhere_stmt_error(sqlanywhere_stmt_wrapper *stmt_wrapper) {
-  rb_raise_sqlanywhere_error(stmt_wrapper->connection);
 }
 
 VALUE rb_sqlanywhere_stmt_new(VALUE connection, a_sqlany_stmt *stmt) {
@@ -291,6 +297,8 @@ static VALUE rb_sqlanywhere_stmt_rows(VALUE self) {
   GET_CONNECTION(stmt_wrapper->connection);
   VALUE rows = rb_ary_new();
   sacapi_i32 num_cols = sqlany_num_cols(stmt_wrapper->stmt);
+  struct nogvl_stmt_fetch_next_args args;
+  struct sqlanywhere_error error;
   struct sqlanywhere_data_to_rb_data_args sqlanywhere_data;
   a_sqlany_data_value col_value;
   int error_code;
@@ -302,8 +310,11 @@ static VALUE rb_sqlanywhere_stmt_rows(VALUE self) {
   sqlanywhere_data.database_timezone = rb_iv_get(stmt_wrapper->connection, "@database_timezone");
   sqlanywhere_data.opt_time_date = rb_funcall(cDate, intern_new, 2, INT2NUM(2000), INT2NUM(1));
 
+  args.stmt_wrapper = stmt_wrapper;
+  args.error = &error;
+
   if (num_cols < 0) {
-    rb_raise_sqlanywhere_stmt_error(stmt_wrapper);
+    GET_AND_RAISE_SQLANYWHERE_ERROR(stmt_wrapper, error);
   }
 
   if (num_cols == 0) {
@@ -312,15 +323,24 @@ static VALUE rb_sqlanywhere_stmt_rows(VALUE self) {
 
   a_sqlany_column_info column_info[num_cols];
   for (i = 0; i < num_cols; i++) {
-    sqlany_get_column_info(stmt_wrapper->stmt, i, &column_info[i]);
+    if (!sqlany_get_column_info(stmt_wrapper->stmt, i, &column_info[i])) {
+      GET_AND_RAISE_SQLANYWHERE_ERROR(stmt_wrapper, error);
+    }
   }
 
-  while((VALUE) rb_thread_call_without_gvl(nogvl_stmt_fetch_next, stmt_wrapper, RUBY_UBF_IO, 0) == Qtrue) {
+  while(
+    (VALUE) rb_thread_call_without_gvl(
+      nogvl_stmt_fetch_next,
+      &args,
+      nogvl_cancel,
+      stmt_wrapper->connection_wrapper->connection
+    ) == Qtrue
+  ) {
     row = rb_ary_new();
 
     for (i = 0; i < num_cols; i++) {
       if (!sqlany_get_column(stmt_wrapper->stmt, i, &col_value)) {
-        rb_raise_sqlanywhere_stmt_error(stmt_wrapper);
+        GET_AND_RAISE_SQLANYWHERE_ERROR(stmt_wrapper, error);
       }
 
       sqlanywhere_data.value = &col_value;
@@ -332,20 +352,8 @@ static VALUE rb_sqlanywhere_stmt_rows(VALUE self) {
     rb_ary_push(rows, row);
   }
 
-  /* SQLAnywhere bug
-  * When executing a select query with wrong search type
-  * it doesn't return an error until we start to fetch results
-  * Example
-  *
-  * CREATE TABLE exp(id INT, name VARCHAR(255));
-  * SELECT * FROM exp where name = 123;
-  *
-  * This will only return an error when we start fetching results
-  */
-  error_code = sqlany_error(wrapper->connection, NULL, SACAPI_ERROR_SIZE);
-
-  if (error_code != 0 && error_code != ROW_NOT_FOUND_ERROR) {
-    rb_raise_sqlanywhere_stmt_error(stmt_wrapper);
+  if (error.error_code != ROW_NOT_FOUND_ERROR) {
+    rb_raise_sqlanywhere_error(stmt_wrapper->connection, &error);
   }
 
   return rows;
@@ -359,11 +367,12 @@ static VALUE rb_sqlanywhere_stmt_rows(VALUE self) {
 static VALUE rb_sqlanywhere_stmt_affected_rows(VALUE self) {
   sacapi_i32 affected;
   GET_STATEMENT(self);
+  struct sqlanywhere_error error;
 
   affected = sqlany_affected_rows(stmt_wrapper->stmt);
 
   if (affected == -1) {
-    rb_raise_sqlanywhere_stmt_error(stmt_wrapper);
+    GET_AND_RAISE_SQLANYWHERE_ERROR(stmt_wrapper, error);
   }
 
   return ULL2NUM(affected);
@@ -376,11 +385,12 @@ static VALUE rb_sqlanywhere_stmt_affected_rows(VALUE self) {
 static VALUE rb_sqlanywhere_stmt_num_params(VALUE self) {
   sacapi_i32 params;
   GET_STATEMENT(self);
+  struct sqlanywhere_error error;
 
   params = sqlany_num_params(stmt_wrapper->stmt);
 
   if (params == -1) {
-    rb_raise_sqlanywhere_stmt_error(stmt_wrapper);
+    GET_AND_RAISE_SQLANYWHERE_ERROR(stmt_wrapper, error);
   }
 
   return ULL2NUM(params);
@@ -393,11 +403,12 @@ static VALUE rb_sqlanywhere_stmt_num_params(VALUE self) {
 static VALUE rb_sqlanywhere_stmt_num_columns(VALUE self) {
   sacapi_i32 cols;
   GET_STATEMENT(self);
+  struct sqlanywhere_error error;
 
   cols = sqlany_num_cols(stmt_wrapper->stmt);
 
   if (cols == -1) {
-    rb_raise_sqlanywhere_stmt_error(stmt_wrapper);
+    GET_AND_RAISE_SQLANYWHERE_ERROR(stmt_wrapper, error);
   }
 
   return ULL2NUM(cols);
@@ -413,6 +424,7 @@ static VALUE rb_sqlanywhere_stmt_columns(VALUE self) {
   VALUE column_list;
   GET_STATEMENT(self);
   GET_CONNECTION(stmt_wrapper->connection);
+  struct sqlanywhere_error error;
 
   column_count = sqlany_num_cols(stmt_wrapper->stmt);
   column_list = rb_ary_new2((long)column_count);
@@ -422,7 +434,7 @@ static VALUE rb_sqlanywhere_stmt_columns(VALUE self) {
     a_sqlany_column_info column_info;
 
     if (sqlany_get_column_info(stmt_wrapper->stmt, i, &column_info) == 0) {
-      rb_raise_sqlanywhere_stmt_error(stmt_wrapper);
+      GET_AND_RAISE_SQLANYWHERE_ERROR(stmt_wrapper, error);
     }
 
     rb_field = rb_funcall(
@@ -455,7 +467,12 @@ static VALUE rb_sqlanywhere_stmt_columns(VALUE self) {
 static VALUE rb_sqlanywhere_stmt_close(VALUE self) {
   GET_STATEMENT(self);
 
-  rb_thread_call_without_gvl(nogvl_stmt_close, stmt_wrapper, RUBY_UBF_IO, 0);
+  rb_thread_call_without_gvl(
+    nogvl_stmt_close,
+    stmt_wrapper,
+    nogvl_cancel,
+    stmt_wrapper->connection_wrapper->connection
+  );
 
   return Qnil;
 }
@@ -475,6 +492,7 @@ static VALUE rb_sqlanywhere_stmt_create_result(VALUE self) {
  */
 VALUE rb_sqlanywhere_stmt_last_result(VALUE self) {
   GET_STATEMENT(self);
+  struct sqlanywhere_error error;
   VALUE last_result;
 
   if (stmt_wrapper->fetched) {
@@ -483,7 +501,7 @@ VALUE rb_sqlanywhere_stmt_last_result(VALUE self) {
   }
 
   if (sqlany_num_cols(stmt_wrapper->stmt) < 0) {
-    rb_raise_sqlanywhere_stmt_error(stmt_wrapper);
+    GET_AND_RAISE_SQLANYWHERE_ERROR(stmt_wrapper, error);
   }
 
   last_result = rb_sqlanywhere_stmt_create_result(self);
@@ -504,17 +522,16 @@ static VALUE rb_sqlanywhere_stmt_execute(int argc, VALUE *argv, VALUE self) {
   GET_CONNECTION(stmt_wrapper->connection);
   sacapi_i32 bind_count;
   sacapi_i32 i;
-  a_sqlany_stmt *stmt;
   VALUE result;
   rb_encoding *encoding;
   struct nogvl_stmt_execute_args args;
+  struct sqlanywhere_error error;
   struct rb_data_to_sqlanywhere_data_args rb_data;
   int args_count = rb_scan_args(argc, argv, "*", NULL);
   sacapi_i32 alloc_count = 0;
 
   encoding = rb_sqlanywhere_encoding(stmt_wrapper->connection);
-  stmt = stmt_wrapper->stmt;
-  bind_count = sqlany_num_params(stmt);
+  bind_count = sqlany_num_params(stmt_wrapper->stmt);
 
   rb_data.encoding = encoding;
 
@@ -532,8 +549,8 @@ static VALUE rb_sqlanywhere_stmt_execute(int argc, VALUE *argv, VALUE self) {
 
   if (bind_count > 0) {
     for (i = 0; i < bind_count; i++) {
-      if (!sqlany_describe_bind_param(stmt, i, &bind_params[i])) {
-        rb_raise_sqlanywhere_stmt_error(stmt_wrapper);
+      if (!sqlany_describe_bind_param(stmt_wrapper->stmt, i, &bind_params[i])) {
+        GET_AND_RAISE_SQLANYWHERE_ERROR(stmt_wrapper, error);
       }
 
       rb_data.arg = argv[i];
@@ -542,19 +559,26 @@ static VALUE rb_sqlanywhere_stmt_execute(int argc, VALUE *argv, VALUE self) {
       rb_data_to_sqlanywhere_data(rb_data);
       alloc_count++;
 
-      if (!sqlany_bind_param(stmt, i, &bind_params[i])) {
+      if (!sqlany_bind_param(stmt_wrapper->stmt, i, &bind_params[i])) {
         FREE_BINDS;
-        rb_raise_sqlanywhere_stmt_error(stmt_wrapper);
+        GET_AND_RAISE_SQLANYWHERE_ERROR(stmt_wrapper, error);
       }
     }
   }
 
-  args.stmt = stmt;
-  args.connection = wrapper->connection;
+  args.stmt_wrapper = stmt_wrapper;
+  args.error = &error;
 
-  if ((VALUE)rb_thread_call_without_gvl(nogvl_stmt_execute, &args, nogvl_stmt_execute_ubf, &args) == Qfalse) {
+  if (
+    (VALUE)rb_thread_call_without_gvl(
+      nogvl_stmt_execute,
+      &args,
+      nogvl_cancel,
+      stmt_wrapper->connection_wrapper->connection
+    ) == Qfalse
+  ) {
     FREE_BINDS;
-    rb_raise_sqlanywhere_stmt_error(stmt_wrapper);
+    rb_raise_sqlanywhere_error(stmt_wrapper->connection, &error);
   }
 
   FREE_BINDS;
@@ -564,8 +588,8 @@ static VALUE rb_sqlanywhere_stmt_execute(int argc, VALUE *argv, VALUE self) {
   result = rb_sqlanywhere_stmt_last_result(self);
 
   // Reset statement to its prepared state condition
-  if (!sqlany_reset(stmt)) {
-    rb_raise_sqlanywhere_stmt_error(stmt_wrapper);
+  if (!sqlany_reset(stmt_wrapper->stmt)) {
+    GET_AND_RAISE_SQLANYWHERE_ERROR(stmt_wrapper, error);
   }
 
   return result;

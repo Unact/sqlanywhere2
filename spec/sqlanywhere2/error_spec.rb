@@ -23,6 +23,18 @@ RSpec.describe SQLAnywhere2::Error do
     expect(error).to respond_to(:sql_state)
   end
 
+  it 'should return correct error message for multithread execution' do
+    threads = 10.times.map do |i|
+      Thread.new { [i, create_error("raiserror 55555 '#{i}'")] }
+    end
+
+    threads.each(&:join).map do |thread|
+      i, error = thread.value
+
+      expect(error.message).to eq("RAISERROR executed: #{i}\n")
+    end
+  end
+
   context 'encoding' do
     let(:invalid_message_encoding) { ['e5c67d1f'].pack('H*').force_encoding(connection.encoding) }
     let(:valid_message_encoding) { '文字' }

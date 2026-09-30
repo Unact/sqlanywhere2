@@ -5,10 +5,29 @@ extern VALUE mSQLAnywhere2, cSQLAnywhere2Error;
 static ID intern_new;
 
 /*
+ * used to pass all arguments to sqlany_commit while inside
+ * rb_thread_call_without_gvl
+ */
+struct nogvl_commit_args {
+  struct sqlanywhere_error *error;
+  a_sqlany_connection *connection;
+};
+
+/*
+ * used to pass all arguments to sqlany_rollback while inside
+ * rb_thread_call_without_gvl
+ */
+struct nogvl_rollback_args {
+  struct sqlanywhere_error *error;
+  a_sqlany_connection *connection;
+};
+
+/*
  * used to pass all arguments to sqlany_connect while inside
  * rb_thread_call_without_gvl
  */
 struct nogvl_connect_args {
+  struct sqlanywhere_error *error;
   a_sqlany_connection *connection;
   const char *opts;
 };
@@ -18,7 +37,19 @@ struct nogvl_connect_args {
  * rb_thread_call_without_gvl
  */
 struct nogvl_execute_immediate_args {
+  struct sqlanywhere_error *error;
   a_sqlany_connection *connection;
+  const char *sql;
+};
+
+/*
+ * used to pass all arguments to sqlany_prepare while inside
+ * rb_thread_call_without_gvl
+ */
+struct nogvl_prepare_args {
+  struct sqlanywhere_error *error;
+  a_sqlany_connection *connection;
+  a_sqlany_stmt *stmt;
   const char *sql;
 };
 
@@ -27,25 +58,32 @@ struct nogvl_execute_immediate_args {
  * rb_thread_call_without_gvl
  */
 struct nogvl_execute_direct_args {
+  struct sqlanywhere_error *error;
   a_sqlany_connection *connection;
   a_sqlany_stmt *stmt;
   const char *sql;
 };
 
-static void *nogvl_commit(void *connection) {
+static void *nogvl_commit(void *ptr) {
+  struct nogvl_commit_args *args = ptr;
   sacapi_bool result;
 
-  result = sqlany_commit(connection);
+  result = sqlany_commit(args->connection);
 
-  return (void *)(result != 0 ? Qtrue : Qfalse);
+  if (result == 0) get_sqlanywhere_error(args->connection, args->error);
+
+  return (void*)(result != 0 ? Qtrue : Qfalse);
 }
 
-static void *nogvl_rollback(void *connection) {
+static void *nogvl_rollback(void *ptr) {
+  struct nogvl_rollback_args *args = ptr;
   sacapi_bool result;
 
-  result = sqlany_rollback(connection);
+  result = sqlany_rollback(args->connection);
 
-  return (void *)(result != 0 ? Qtrue : Qfalse);
+  if (result == 0) get_sqlanywhere_error(args->connection, args->error);
+
+  return (void*)(result != 0 ? Qtrue : Qfalse);
 }
 
 static void *nogvl_connect(void *ptr) {
@@ -54,7 +92,9 @@ static void *nogvl_connect(void *ptr) {
 
   result = sqlany_connect(args->connection, args->opts);
 
-  return (void *)(result != 0 ? Qtrue : Qfalse);
+  if (result == 0) get_sqlanywhere_error(args->connection, args->error);
+
+  return (void*)(result != 0 ? Qtrue : Qfalse);
 }
 
 static void *nogvl_execute_immediate(void *ptr) {
@@ -63,13 +103,9 @@ static void *nogvl_execute_immediate(void *ptr) {
 
   result = sqlany_execute_immediate(args->connection, args->sql);
 
+  if (result == 0) get_sqlanywhere_error(args->connection, args->error);
+
   return (void*)(result != 0 ? Qtrue : Qfalse);
-}
-
-static void nogvl_execute_immediate_ubf(void *ptr) {
-  struct nogvl_execute_immediate_args *args = ptr;
-
-  sqlany_cancel(args->connection);
 }
 
 static void *nogvl_execute_direct(void *ptr) {
@@ -77,13 +113,19 @@ static void *nogvl_execute_direct(void *ptr) {
 
   args->stmt = sqlany_execute_direct(args->connection, args->sql);
 
+  if (args->stmt == NULL) get_sqlanywhere_error(args->connection, args->error);
+
   return (void*)(args->stmt != NULL ? Qtrue : Qfalse);
 }
 
-static void nogvl_execute_direct_ubf(void *ptr) {
-  struct nogvl_execute_direct_args *args = ptr;
+static void *nogvl_prepare(void *ptr) {
+  struct nogvl_prepare_args *args = ptr;
 
-  sqlany_cancel(args->connection);
+  args->stmt = sqlany_prepare(args->connection, args->sql);
+
+  if (args->stmt == NULL) get_sqlanywhere_error(args->connection, args->error);
+
+  return (void*)(args->stmt != NULL ? Qtrue : Qfalse);
 }
 
 static void *nogvl_close(void *ptr) {
@@ -97,6 +139,10 @@ static void *nogvl_close(void *ptr) {
   return NULL;
 }
 
+void nogvl_cancel(void *connection) {
+  sqlany_cancel((a_sqlany_connection*) connection);
+}
+
 /* call-seq: connection.close # => nil
  *
  * Explicitly closing this will free up server resources immediately rather
@@ -106,7 +152,7 @@ static VALUE rb_sqlanywhere_connection_close(VALUE self) {
   GET_CONNECTION(self);
 
   if (wrapper->connection) {
-    rb_thread_call_without_gvl(nogvl_close, wrapper, RUBY_UBF_IO, 0);
+    rb_thread_call_without_gvl(nogvl_close, wrapper, nogvl_cancel, wrapper->connection);
   }
 
   return Qnil;
@@ -119,29 +165,28 @@ rb_encoding * rb_sqlanywhere_encoding(VALUE self) {
   return rb_enc_find(c_encoding);
 }
 
-void rb_raise_sqlanywhere_error(VALUE self) {
+void get_sqlanywhere_error(a_sqlany_connection *connection, struct sqlanywhere_error *error) {
+  error->error_code = sqlany_error(connection, error->error_buffer, sizeof(error->error_buffer));
+
+  sqlany_sqlstate(connection, error->state_buffer, sizeof(error->state_buffer));
+
+  // Clear currently stored error
+  sqlany_clear_error(connection);
+}
+
+void rb_raise_sqlanywhere_error(VALUE self, struct sqlanywhere_error *error) {
   GET_CONNECTION(self);
-  char error_buffer[SACAPI_ERROR_SIZE];
-  char state_buffer[SACAPI_ERROR_SIZE];
-  sacapi_i32 result;
   VALUE rb_error_msg;
   VALUE rb_sql_state;
   VALUE e;
 
-  result = sqlany_error(wrapper->connection, error_buffer, SACAPI_ERROR_SIZE);
-
-  sqlany_sqlstate(wrapper->connection, state_buffer, SACAPI_ERROR_SIZE);
-
-  // Clear currently stored error
-  sqlany_clear_error(wrapper->connection);
-
-  rb_error_msg = rb_str_new2(error_buffer);
-  rb_sql_state = rb_str_new2(state_buffer);
+  rb_error_msg = rb_str_new2(error->error_buffer);
+  rb_sql_state = rb_str_new2(error->state_buffer);
 
   rb_enc_associate(rb_error_msg, rb_sqlanywhere_encoding(self));
   rb_enc_associate(rb_sql_state, rb_sqlanywhere_encoding(self));
 
-  e = rb_funcall(cSQLAnywhere2Error, intern_new, 3, rb_error_msg, INT2NUM(result), rb_sql_state);
+  e = rb_funcall(cSQLAnywhere2Error, intern_new, 3, rb_error_msg, INT2NUM(error->error_code), rb_sql_state);
   rb_exc_raise(e);
 }
 
@@ -178,15 +223,17 @@ static VALUE allocate(VALUE klass) {
 
 static VALUE rb_sqlanywhere_connection_execute_immediate(VALUE self, VALUE sql) {
   struct nogvl_execute_immediate_args args;
+  struct sqlanywhere_error error;
   GET_CONNECTION(self);
 
   Check_Type(sql, T_STRING);
 
   args.connection = wrapper->connection;
   args.sql = StringValueCStr(sql);
+  args.error = &error;
 
-  if ((VALUE) rb_thread_call_without_gvl(nogvl_execute_immediate, &args, nogvl_execute_immediate_ubf, &args) == Qfalse) {
-    rb_raise_sqlanywhere_error(self);
+  if ((VALUE) rb_thread_call_without_gvl(nogvl_execute_immediate, &args, nogvl_cancel, wrapper->connection) == Qfalse) {
+    rb_raise_sqlanywhere_error(self, &error);
   }
 
   return Qnil;
@@ -214,16 +261,15 @@ static VALUE rb_initialize_connection(VALUE self) {
 
 static VALUE rb_sqlanywhere_connect(VALUE self, VALUE opts) {
   struct nogvl_connect_args args;
-  VALUE rv;
+  struct sqlanywhere_error error;
   GET_CONNECTION(self);
 
   args.opts = StringValueCStr(opts);
   args.connection = wrapper->connection;
+  args.error = &error;
 
-  rv = (VALUE) rb_thread_call_without_gvl(nogvl_connect, &args, RUBY_UBF_IO, 0);
-
-  if (rv == Qfalse) {
-    rb_raise_sqlanywhere_error(self);
+  if ((VALUE) rb_thread_call_without_gvl(nogvl_connect, &args, RUBY_UBF_IO, 0) == Qfalse) {
+    rb_raise_sqlanywhere_error(self, &error);
   }
 
   wrapper->closed = 0;
@@ -231,30 +277,36 @@ static VALUE rb_sqlanywhere_connect(VALUE self, VALUE opts) {
 }
 
 static VALUE rb_sqlanywhere_connection_prepare_statement(VALUE self, VALUE sql) {
-  GET_CONNECTION(self);
-
-  Check_Type(sql, T_STRING);
-
-  a_sqlany_stmt *stmt = sqlany_prepare(wrapper->connection, StringValueCStr(sql));
-
-  if (stmt == NULL) {
-    rb_raise_sqlanywhere_error(self);
-  }
-
-  return rb_sqlanywhere_stmt_new(self, stmt);
-}
-
-static VALUE rb_sqlanywhere_connection_execute_direct(VALUE self, VALUE sql) {
-  struct nogvl_execute_direct_args args;
+  struct nogvl_prepare_args args;
+  struct sqlanywhere_error error;
   GET_CONNECTION(self);
 
   Check_Type(sql, T_STRING);
 
   args.connection = wrapper->connection;
   args.sql = StringValueCStr(sql);
+  args.error = &error;
 
-  if ((VALUE) rb_thread_call_without_gvl(nogvl_execute_direct, &args, nogvl_execute_direct_ubf, &args) == Qfalse) {
-    rb_raise_sqlanywhere_error(self);
+  if ((VALUE) rb_thread_call_without_gvl(nogvl_prepare, &args, nogvl_cancel, wrapper->connection) == Qfalse) {
+    rb_raise_sqlanywhere_error(self, &error);
+  }
+
+  return rb_sqlanywhere_stmt_new(self, args.stmt);
+}
+
+static VALUE rb_sqlanywhere_connection_execute_direct(VALUE self, VALUE sql) {
+  struct nogvl_execute_direct_args args;
+  struct sqlanywhere_error error;
+  GET_CONNECTION(self);
+
+  Check_Type(sql, T_STRING);
+
+  args.connection = wrapper->connection;
+  args.sql = StringValueCStr(sql);
+  args.error = &error;
+
+  if ((VALUE) rb_thread_call_without_gvl(nogvl_execute_direct, &args, nogvl_cancel, wrapper->connection) == Qfalse) {
+    rb_raise_sqlanywhere_error(self, &error);
   }
 
   VALUE statement = rb_sqlanywhere_stmt_new(self, args.stmt);
@@ -272,9 +324,14 @@ static VALUE rb_sqlanywhere_connection_execute_direct(VALUE self, VALUE sql) {
  * Returns true if succeeded, false if not
  */
 static VALUE rb_sqlanywhere_commit(VALUE self) {
+  struct nogvl_commit_args args;
+  struct sqlanywhere_error error;
   GET_CONNECTION(self);
 
-  return (VALUE) rb_thread_call_without_gvl(nogvl_commit, wrapper->connection, RUBY_UBF_IO, 0);
+  args.connection = wrapper->connection;
+  args.error = &error;
+
+  return (VALUE) rb_thread_call_without_gvl(nogvl_commit, &args, nogvl_cancel, wrapper->connection);
 }
 
 /* call-seq:
@@ -283,10 +340,15 @@ static VALUE rb_sqlanywhere_commit(VALUE self) {
  * Returns true if succeeded, raises an error if not
  */
 static VALUE rb_sqlanywhere_commit_bang(VALUE self) {
+  struct nogvl_commit_args args;
+  struct sqlanywhere_error error;
   GET_CONNECTION(self);
 
-  if ((VALUE) rb_thread_call_without_gvl(nogvl_commit, wrapper->connection, RUBY_UBF_IO, 0) == Qfalse) {
-    rb_raise_sqlanywhere_error(self);
+  args.connection = wrapper->connection;
+  args.error = &error;
+
+  if ((VALUE) rb_thread_call_without_gvl(nogvl_commit, &args, nogvl_cancel, wrapper->connection) == Qfalse) {
+    rb_raise_sqlanywhere_error(self, &error);
   }
 
   return Qtrue;
@@ -298,9 +360,14 @@ static VALUE rb_sqlanywhere_commit_bang(VALUE self) {
  * Returns true if succeeded, false if not
  */
 static VALUE rb_sqlanywhere_rollback(VALUE self) {
+  struct nogvl_rollback_args args;
+  struct sqlanywhere_error error;
   GET_CONNECTION(self);
 
-  return (VALUE) rb_thread_call_without_gvl(nogvl_rollback, wrapper->connection, RUBY_UBF_IO, 0);
+  args.connection = wrapper->connection;
+  args.error = &error;
+
+  return (VALUE) rb_thread_call_without_gvl(nogvl_rollback, &args, nogvl_cancel, wrapper->connection);
 }
 
 /* call-seq:
@@ -309,10 +376,15 @@ static VALUE rb_sqlanywhere_rollback(VALUE self) {
  * Returns true if succeeded, raises an error if not
  */
 static VALUE rb_sqlanywhere_rollback_bang(VALUE self) {
+  struct nogvl_rollback_args args;
+  struct sqlanywhere_error error;
   GET_CONNECTION(self);
 
-  if ((VALUE) rb_thread_call_without_gvl(nogvl_rollback, wrapper->connection, RUBY_UBF_IO, 0) == Qfalse) {
-    rb_raise_sqlanywhere_error(self);
+  args.connection = wrapper->connection;
+  args.error = &error;
+
+  if ((VALUE) rb_thread_call_without_gvl(nogvl_rollback, &args, nogvl_cancel, wrapper->connection) == Qfalse) {
+    rb_raise_sqlanywhere_error(self, &error);
   }
 
   return Qtrue;
